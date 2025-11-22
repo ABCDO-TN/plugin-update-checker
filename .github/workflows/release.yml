@@ -1,0 +1,80 @@
+name: Auto Release Plugin
+
+# Trigger: Run on every push to the main branch
+on:
+  push:
+    branches:
+      - my-main-dev  # استبدل هذا باسم فرعك الرئيسي الذي تعمل عليه حالياً
+      - master       # أو master إذا كنت تستخدمه
+    paths:
+      - 'plugin-update-checker.php' # Only run if the main file changes (optional but good)
+      - '**' # Run on any file change
+
+permissions:
+  contents: write # Required to create Releases and Tags
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the code
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all history for tags
+
+      # 2. Read Version from PHP file
+      # This command searches for "Version: X.X" in plugin-update-checker.php
+      - name: Get Version from File
+        id: get_version
+        run: |
+          VERSION=$(grep "Version:" plugin-update-checker.php | awk -F': ' '{print $2}' | tr -d '[:space:]')
+          echo "Detected Version: $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      # 3. Check if this Tag already exists
+      - name: Check if Tag Exists
+        id: check_tag
+        run: |
+          if git rev-parse "v${{ env.VERSION }}" >/dev/null 2>&1; then
+            echo "Tag v${{ env.VERSION }} already exists."
+            echo "EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "Tag v${{ env.VERSION }} does not exist. Proceeding with release."
+            echo "EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      # 4. Prepare ZIP file for WordPress (Only if new version)
+      - name: Create Plugin ZIP
+        if: env.EXISTS == 'false'
+        run: |
+          # Define the plugin slug (folder name)
+          SLUG="plugin-update-checker"
+          
+          # Create a temporary build directory
+          mkdir build
+          mkdir build/$SLUG
+          
+          # Copy files to the build folder (Excluding git files and build scripts)
+          rsync -av --progress . build/$SLUG --exclude .git --exclude .github --exclude build
+          
+          # Create the ZIP file
+          cd build
+          zip -r ../$SLUG.zip $SLUG
+          cd ..
+          echo "ZIP file created: $SLUG.zip"
+
+      # 5. Create GitHub Release and Upload ZIP
+      - name: Create Release
+        if: env.EXISTS == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Release v${{ env.VERSION }}
+          body: "Auto-generated release for version ${{ env.VERSION }}"
+          files: plugin-update-checker.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
