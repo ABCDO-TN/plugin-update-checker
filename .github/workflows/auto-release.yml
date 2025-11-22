@@ -1,80 +1,67 @@
 name: Auto Release Plugin
 
-# Trigger: Run on every push to the main branch
+# Trigger: Run this workflow when code is pushed to your main branch
 on:
   push:
     branches:
-      - my-main-dev  # استبدل هذا باسم فرعك الرئيسي الذي تعمل عليه حالياً
-      - master       # أو master إذا كنت تستخدمه
+      - my-main-dev  # CHANGE THIS if your branch name is different (e.g., main or master)
     paths:
-      - 'plugin-update-checker.php' # Only run if the main file changes (optional but good)
-      - '**' # Run on any file change
+      - 'plugin-update-checker.php' # Only run if the main file (with version number) changes
 
 permissions:
-  contents: write # Required to create Releases and Tags
+  contents: write # Permission to create releases and tags
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-
     steps:
       # 1. Checkout the code
       - name: Checkout Code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Fetch all history for tags
 
-      # 2. Read Version from PHP file
-      # This command searches for "Version: X.X" in plugin-update-checker.php
-      - name: Get Version from File
+      # 2. Extract Version from plugin-update-checker.php
+      - name: Read Version
         id: get_version
         run: |
-          VERSION=$(grep "Version:" plugin-update-checker.php | awk -F': ' '{print $2}' | tr -d '[:space:]')
+          # Grep looks for 'Version:', awk grabs the number, tr removes spaces
+          VERSION=$(grep -i "Version:" plugin-update-checker.php | awk -F: '{print $2}' | tr -d '[:space:]')
           echo "Detected Version: $VERSION"
+          # Save to GitHub Environment Variable
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      # 3. Check if this Tag already exists
-      - name: Check if Tag Exists
+      # 3. Check if Tag already exists
+      - name: Check Tag Existence
         id: check_tag
-        run: |
-          if git rev-parse "v${{ env.VERSION }}" >/dev/null 2>&1; then
-            echo "Tag v${{ env.VERSION }} already exists."
-            echo "EXISTS=true" >> $GITHUB_ENV
-          else
-            echo "Tag v${{ env.VERSION }} does not exist. Proceeding with release."
-            echo "EXISTS=false" >> $GITHUB_ENV
-          fi
-
-      # 4. Prepare ZIP file for WordPress (Only if new version)
-      - name: Create Plugin ZIP
-        if: env.EXISTS == 'false'
-        run: |
-          # Define the plugin slug (folder name)
-          SLUG="plugin-update-checker"
-          
-          # Create a temporary build directory
-          mkdir build
-          mkdir build/$SLUG
-          
-          # Copy files to the build folder (Excluding git files and build scripts)
-          rsync -av --progress . build/$SLUG --exclude .git --exclude .github --exclude build
-          
-          # Create the ZIP file
-          cd build
-          zip -r ../$SLUG.zip $SLUG
-          cd ..
-          echo "ZIP file created: $SLUG.zip"
-
-      # 5. Create GitHub Release and Upload ZIP
-      - name: Create Release
-        if: env.EXISTS == 'false'
-        uses: softprops/action-gh-release@v1
+        uses: mukunku/tag-exists-action@v1.4.0
         with:
-          tag_name: v${{ env.VERSION }}
-          name: Release v${{ env.VERSION }}
-          body: "Auto-generated release for version ${{ env.VERSION }}"
-          files: plugin-update-checker.zip
-          draft: false
-          prerelease: false
+          tag: ${{ env.VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4. Prepare and Zip the plugin files (Only if tag is new)
+      - name: Build ZIP File
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          # Create a directory to act as the plugin folder
+          mkdir plugin-update-checker
+          
+          # Copy all files into it (using rsync to exclude unwanted files)
+          # We exclude .git, .github, and the zip itself to keep it clean
+          rsync -av --progress . plugin-update-checker --exclude plugin-update-checker --exclude .git --exclude .github --exclude .gitignore
+          
+          # Zip the directory
+          zip -r plugin-update-checker.zip plugin-update-checker
+          
+          echo "ZIP file created successfully."
+
+      # 5. Create Release and Upload Asset (Only if tag is new)
+      - name: Create Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.VERSION }}
+          name: "Release ${{ env.VERSION }}"
+          body: "Automatic update for version ${{ env.VERSION }}"
+          artifacts: "plugin-update-checker.zip"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          makeLatest: true
