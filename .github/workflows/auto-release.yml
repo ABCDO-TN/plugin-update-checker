@@ -4,7 +4,7 @@ name: Auto Release Plugin
 on:
   push:
     branches:
-      - my-main-dev  # CHANGE THIS if your branch name is different (e.g., main or master)
+      - main  # CHANGE THIS if your branch name is different (e.g., main or master)
     paths:
       - 'plugin-update-checker.php' # Only run if the main file (with version number) changes
 

@@ -1,7 +1,6 @@
 <?php
 /**
- * Plugin Update Checker Library 5.6.1.1
- * http://w-shadow.com/
+ * Plugin Update Checker Library 5.6.1.2
  *
  * Copyright 2025 Janis Elsts
  * Released under the MIT license. See license.txt for details.
